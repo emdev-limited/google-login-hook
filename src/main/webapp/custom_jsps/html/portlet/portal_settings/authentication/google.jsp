@@ -20,6 +20,7 @@
 boolean googleAuthEnabled = PrefsPropsUtil.getBoolean(company.getCompanyId(), "google.auth.enabled", true);
 String googleClientId = PrefsPropsUtil.getString(company.getCompanyId(), "google.client.id");
 String googleClientSecret = PrefsPropsUtil.getString(company.getCompanyId(), "google.client.secret");
+String googleDomains = PrefsPropsUtil.getString(company.getCompanyId(), "google.domains");
 %>
 
 <aui:fieldset>
@@ -32,4 +33,6 @@ String googleClientSecret = PrefsPropsUtil.getString(company.getCompanyId(), "go
 	<aui:input cssClass="lfr-input-text-container" label="google-client-id" name='<%= "settings--google.client.id--" %>' type="text" value="<%= googleClientId %>" />
 
 	<aui:input cssClass="lfr-input-text-container" label="google-client-secret" name='<%= "settings--google.client.secret--" %>' type="text" value="<%= googleClientSecret %>" />
+
+	<aui:input cssClass="lfr-input-text-container" label="google-domains" name='<%= "settings--google.domains--" %>' type="textarea" value="<%=googleDomains%>"/>
 </aui:fieldset>

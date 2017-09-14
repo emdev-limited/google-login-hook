@@ -15,35 +15,25 @@
 package com.liferay.google;
 
 import com.google.api.client.auth.oauth2.Credential;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest;
-import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
-import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
+import com.google.api.client.googleapis.auth.oauth2.*;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.oauth2.Oauth2;
 import com.google.api.services.oauth2.model.Userinfo;
-
 import com.liferay.portal.kernel.deploy.DeployManagerUtil;
 import com.liferay.portal.kernel.exception.PortalException;
 import com.liferay.portal.kernel.exception.SystemException;
+import com.liferay.portal.kernel.log.Log;
+import com.liferay.portal.kernel.log.LogFactoryUtil;
 import com.liferay.portal.kernel.portlet.LiferayWindowState;
 import com.liferay.portal.kernel.struts.BaseStrutsAction;
-import com.liferay.portal.kernel.util.CalendarFactoryUtil;
-import com.liferay.portal.kernel.util.Constants;
-import com.liferay.portal.kernel.util.LocaleUtil;
-import com.liferay.portal.kernel.util.ParamUtil;
-import com.liferay.portal.kernel.util.PrefsPropsUtil;
-import com.liferay.portal.kernel.util.StringPool;
-import com.liferay.portal.kernel.util.StringUtil;
-import com.liferay.portal.kernel.util.Validator;
-import com.liferay.portal.kernel.util.WebKeys;
+import com.liferay.portal.kernel.util.*;
 import com.liferay.portal.kernel.workflow.WorkflowConstants;
 import com.liferay.portal.model.Contact;
 import com.liferay.portal.model.User;
 import com.liferay.portal.model.UserGroupRole;
+import com.liferay.portal.security.auth.PrincipalException;
 import com.liferay.portal.service.ServiceContext;
 import com.liferay.portal.service.UserLocalServiceUtil;
 import com.liferay.portal.theme.ThemeDisplay;
@@ -53,22 +43,19 @@ import com.liferay.portlet.PortletURLFactoryUtil;
 import com.liferay.portlet.expando.model.ExpandoTableConstants;
 import com.liferay.portlet.expando.service.ExpandoValueLocalServiceUtil;
 
+import javax.portlet.PortletMode;
+import javax.portlet.PortletRequest;
+import javax.portlet.PortletURL;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
-
-import javax.portlet.PortletMode;
-import javax.portlet.PortletRequest;
-import javax.portlet.PortletURL;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 
 /**
  * @author Sergio González
@@ -80,6 +67,8 @@ public class GoogleOAuth extends BaseStrutsAction {
 	public static final String GOOGLE_REFRESH_TOKEN = "googleRefreshToken";
 
 	public static final String GOOGLE_USER_ID = "googleUserId";
+
+	private static Log _log = LogFactoryUtil.getLog(GoogleOAuth.class);
 
 	public String execute(
 			HttpServletRequest request, HttpServletResponse response)
@@ -112,13 +101,20 @@ public class GoogleOAuth extends BaseStrutsAction {
 
 			if (Validator.isNotNull(code)) {
 				Credential credential = exchangeCode(
-					themeDisplay.getCompanyId(), code, redirectUri);
+						themeDisplay.getCompanyId(), code, redirectUri);
 
-				User user = setGoogleCredentials(
-					session, themeDisplay.getCompanyId(), credential);
+				User user = null;
+				try {
+					user = setGoogleCredentials(
+							session, themeDisplay.getCompanyId(), credential);
+				} catch (PrincipalException e) {
+					_log.error(e.getMessage());
+					PortalUtil.sendError(e, request, response);
+					return null;
+				}
 
 				if ((user != null) &&
-					(user.getStatus() == WorkflowConstants.STATUS_INCOMPLETE)) {
+						(user.getStatus() == WorkflowConstants.STATUS_INCOMPLETE)) {
 
 					redirectUpdateAccount(request, response, user);
 
@@ -126,7 +122,6 @@ public class GoogleOAuth extends BaseStrutsAction {
 				}
 
 				sendLoginRedirect(request, response);
-
 				return null;
 			}
 
@@ -337,8 +332,8 @@ public class GoogleOAuth extends BaseStrutsAction {
 			WebKeys.THEME_DISPLAY);
 
 		PortletURL portletURL = PortletURLFactoryUtil.create(
-			request, PortletKeys.FAST_LOGIN, themeDisplay.getPlid(),
-			PortletRequest.RENDER_PHASE);
+				request, PortletKeys.FAST_LOGIN, themeDisplay.getPlid(),
+				PortletRequest.RENDER_PHASE);
 
 		portletURL.setWindowState(LiferayWindowState.POP_UP);
 
@@ -361,39 +356,51 @@ public class GoogleOAuth extends BaseStrutsAction {
 
 		String emailAddress = userinfo.getEmail();
 
-		if ((user == null) && Validator.isNotNull(emailAddress)) {
-			user = UserLocalServiceUtil.fetchUserByEmailAddress(
-				companyId, emailAddress);
+		if (Validator.isNotNull(emailAddress)) {
+			String googleDomains = GetterUtil.getString(PrefsPropsUtil.getString(
+					companyId, "google.domains"), StringPool.BLANK);
+			String[] domains = googleDomains.split(StringPool.COMMA);
+			String emailDomain = emailAddress.substring(emailAddress.indexOf(StringPool.AT) + 1, emailAddress.length());
 
-			if ((user != null) &&
-				(user.getStatus() != WorkflowConstants.STATUS_INCOMPLETE)) {
-
-				session.setAttribute("GOOGLE_USER_EMAIL_ADDRESS", emailAddress);
-			}
-		}
-
-		if (user != null) {
-			if (user.getStatus() == WorkflowConstants.STATUS_INCOMPLETE) {
-				session.setAttribute(
-					"GOOGLE_INCOMPLETE_USER_ID", userinfo.getId());
-
-				user.setEmailAddress(userinfo.getEmail());
-				user.setFirstName(userinfo.getGivenName());
-				user.setLastName(userinfo.getFamilyName());
-
-				return user;
+			if (!googleDomains.isEmpty()) {
+				if (!Arrays.asList(domains).contains(emailDomain)) {
+					throw new PrincipalException("Domain " + emailDomain + " is not allow");
+				}
 			}
 
-			user = updateUser(user, userinfo);
-		}
-		else {
-			user = addUser(session, companyId, userinfo);
-		}
+			if ((user == null) && Validator.isNotNull(emailAddress)) {
+				user = UserLocalServiceUtil.fetchUserByEmailAddress(
+						companyId, emailAddress);
 
-		if (DeployManagerUtil.isDeployed(_GOOGLE_DRIVE_CONTEXT)) {
-			updateCustomFields(
-				user, userinfo, credential.getAccessToken(),
-				credential.getRefreshToken());
+				if ((user != null) &&
+						(user.getStatus() != WorkflowConstants.STATUS_INCOMPLETE)) {
+
+					session.setAttribute("GOOGLE_USER_EMAIL_ADDRESS", emailAddress);
+				}
+			}
+
+			if (user != null) {
+				if (user.getStatus() == WorkflowConstants.STATUS_INCOMPLETE) {
+					session.setAttribute(
+							"GOOGLE_INCOMPLETE_USER_ID", userinfo.getId());
+
+					user.setEmailAddress(userinfo.getEmail());
+					user.setFirstName(userinfo.getGivenName());
+					user.setLastName(userinfo.getFamilyName());
+
+					return user;
+				}
+
+				user = updateUser(user, userinfo);
+			} else {
+				user = addUser(session, companyId, userinfo);
+			}
+
+			if (DeployManagerUtil.isDeployed(_GOOGLE_DRIVE_CONTEXT)) {
+				updateCustomFields(
+						user, userinfo, credential.getAccessToken(),
+						credential.getRefreshToken());
+			}
 		}
 
 		return user;
