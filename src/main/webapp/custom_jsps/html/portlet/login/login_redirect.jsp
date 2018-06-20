@@ -20,6 +20,8 @@
 String emailAddress = ParamUtil.getString(request, "emailAddress");
 
 boolean anonymousAccount = ParamUtil.getBoolean(request, "anonymousUser");
+
+String redirect = ParamUtil.getString(request, "redirect", "");
 %>
 
 <c:if test="<%= anonymousAccount && company.isStrangers() %>">
@@ -168,7 +170,7 @@ boolean anonymousAccount = ParamUtil.getBoolean(request, "anonymousUser");
 			}
 		}
 		else {
-			window.opener.parent.location.href = '<%= HtmlUtil.escapeJS(themeDisplay.getURLSignIn()) %>';
+			window.opener.parent.location.href = '<%= redirect.isEmpty() ? HtmlUtil.escapeJS(themeDisplay.getURLSignIn()) : HtmlUtil.escapeJS(redirect) %>';
 
 			window.close();
 		}

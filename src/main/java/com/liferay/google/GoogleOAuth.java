@@ -79,6 +79,8 @@ public class GoogleOAuth extends BaseStrutsAction {
 
 		String cmd = ParamUtil.getString(request, Constants.CMD);
 
+		String redirect = ParamUtil.getString(request, "redirect");
+
 		String redirectUri = PortalUtil.getPortalURL(request) + _REDIRECT_URI;
 
 		if (cmd.equals("login")) {
@@ -89,6 +91,8 @@ public class GoogleOAuth extends BaseStrutsAction {
 				googleAuthorizationCodeRequestUrl = flow.newAuthorizationUrl();
 
 			googleAuthorizationCodeRequestUrl.setRedirectUri(redirectUri);
+
+			googleAuthorizationCodeRequestUrl.setState(HtmlUtil.escape(redirect));
 
 			String url = googleAuthorizationCodeRequestUrl.build();
 
@@ -331,6 +335,8 @@ public class GoogleOAuth extends BaseStrutsAction {
 		ThemeDisplay themeDisplay = (ThemeDisplay)request.getAttribute(
 			WebKeys.THEME_DISPLAY);
 
+		String redirect = ParamUtil.getString(request, "state", "");
+
 		PortletURL portletURL = PortletURLFactoryUtil.create(
 				request, PortletKeys.FAST_LOGIN, themeDisplay.getPlid(),
 				PortletRequest.RENDER_PHASE);
@@ -339,6 +345,10 @@ public class GoogleOAuth extends BaseStrutsAction {
 
 		portletURL.setParameter("struts_action", "/login/login_redirect");
 
+
+		if (Validator.isNotNull(redirect)) {
+			portletURL.setParameter("redirect", HtmlUtil.unescape(redirect));
+		}
 		response.sendRedirect(portletURL.toString());
 	}
 
